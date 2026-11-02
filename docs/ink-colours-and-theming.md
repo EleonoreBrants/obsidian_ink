@@ -16,6 +16,8 @@ When Ink saves an SVG, pen strokes are written as **black** (`#000000`). Writing
 
 Those values are fixed in the file on purpose. Black ink on a white page is what you expect on paper. The file stays readable even if Obsidian is not installed.
 
+Strokes drawn with a colour picked from the style menu are the exception: they are saved with that colour's hex fill and the `ink-color-custom` class instead of `ink-color-primary`. The default (theme) colour is still saved as black. Palette: `src/ink-canvas/stroke-palette.ts`; dark-theme equivalents: `ink-svg-preview-theme.scss`.
+
 The SVG also carries small class names on strokes and lines so the app knows which shapes are pen ink and which are guide lines.
 
 ### Display colours

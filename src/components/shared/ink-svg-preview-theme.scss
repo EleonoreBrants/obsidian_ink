@@ -16,7 +16,31 @@
 .ddc_ink_writing-embed-preview,
 .ddc_ink_drawing-embed-preview {
 	// !important beats baked fill="#000000" presentation attributes in saved SVGs.
-	path { fill: var(--text-normal) !important; }
+	// Strokes with a picked colour (ink-color-custom) keep their baked fill.
+	path:not(.ink-color-custom) { fill: var(--text-normal) !important; }
+}
+
+// Picked stroke colours: light-theme hex -> dark-theme hex. Keep in sync with
+// INK_STROKE_COLOURS in src/ink-canvas/stroke-palette.ts (violet, green, red are the same in both).
+$ink-stroke-dark-colours: (
+	'#9fa8b2': '#9398b0',
+	'#e085f4': '#e599f7',
+	'#4465e9': '#4f72fc',
+	'#4ba1f1': '#4dabf7',
+	'#f1ac4b': '#ffc034',
+	'#e16919': '#f76707',
+	'#4cb05e': '#40c057',
+	'#f87777': '#ff8787',
+);
+
+.theme-dark {
+	.ink-svg-canvas-container,
+	.ddc_ink_writing-embed-preview,
+	.ddc_ink_drawing-embed-preview {
+		@each $light, $dark in $ink-stroke-dark-colours {
+			path[fill='#{$light}'] { fill: #{$dark}; }
+		}
+	}
 }
 
 .ddc_ink_drawing-embed-preview {

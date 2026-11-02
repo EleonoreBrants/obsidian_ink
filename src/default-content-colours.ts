@@ -9,4 +9,7 @@ export const DEFAULT_CONTENT_COLOUR_WRITING_LINE = '#888888';
 
 export const INK_SVG_STROKE_PATH_CLASS = 'ink-type-stroke ink-color-primary';
 
+/** Strokes with a user-picked colour: previews keep the baked fill instead of themed text colour. */
+export const INK_SVG_STROKE_CUSTOM_COLOUR_PATH_CLASS = 'ink-type-stroke ink-color-custom';
+
 export const INK_SVG_WRITING_LINE_CLASS = 'ink-type-writing-line ink-color-writing-line';

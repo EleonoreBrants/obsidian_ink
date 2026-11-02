@@ -14,6 +14,7 @@ import ExtendedDrawingMenu from 'src/components/jsx-components/extended-drawing-
 import { type MenuOption } from 'src/components/jsx-components/overflow-menu/overflow-menu';
 import { SecondaryMenuBar } from 'src/components/jsx-components/secondary-menu-bar/secondary-menu-bar';
 import { InkCanvasModifyMenu } from 'src/components/jsx-components/ink-canvas-modify-menu/ink-canvas-modify-menu';
+import { InkCanvasStyleMenu } from 'src/components/jsx-components/ink-canvas-style-menu/ink-canvas-style-menu';
 import { ResizeHandle } from 'src/components/jsx-components/resize-handle/resize-handle';
 import { verbose } from 'src/logic/utils/universal-dev-logging';
 import { logToVault } from 'src/logic/utils/log-to-vault';
@@ -797,6 +798,12 @@ export function DrawingEditor(props: DrawingEditorProps) {
 		return style.size * zoom * BOOX_STROKE_SIZE_SCALE;
 	}
 
+	function handleStrokeStyleChange() {
+		const editor = editorRef.current;
+		if (!editor || !websocketConnectedRef.current || !getBooxConnectionEnabled()) return;
+		getGlobals().plugin.booxConnection.sendUpdateTool('draw', getBooxStrokeSizeCssPx(editor));
+	}
+
 	function handleBooxActivateTool(activatedTool: 'draw' | 'erase' | 'select') {
 		const inkPlugin = getGlobals().plugin;
 		if (!getBooxConnectionEnabled()) return;
@@ -975,6 +982,10 @@ export function DrawingEditor(props: DrawingEditorProps) {
 					embedId={props.embedded && props.embedId ? props.embedId : undefined}
 					workspaceLeafId={props.embedded && props.workspaceLeafId ? props.workspaceLeafId : undefined}
 					plugin={props.embedded ? getGlobals().plugin : undefined}
+				/>
+				<InkCanvasStyleMenu
+					getEditor={getEditor}
+					onStyleChange={handleStrokeStyleChange}
 				/>
 			</SecondaryMenuBar>
 

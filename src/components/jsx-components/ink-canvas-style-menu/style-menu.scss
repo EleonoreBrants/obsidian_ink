@@ -47,8 +47,7 @@
 .ink_style-picker {
     position: absolute;
     bottom: 3em;
-    left: 50%;
-    transform: translateX(-50%);
+    right: 0;
 
     display: grid;
     gap: 6px;
@@ -64,11 +63,11 @@
 }
 
 .ink_color-picker {
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
 }
 
 .ink_size-picker {
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(3, 1fr);
 }
 
 .ink_color-option {

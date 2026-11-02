@@ -1,12 +1,14 @@
 import {
 	DEFAULT_CONTENT_COLOUR_PRIMARY_STROKE,
 	DEFAULT_CONTENT_COLOUR_WRITING_LINE,
+	INK_SVG_STROKE_CUSTOM_COLOUR_PATH_CLASS,
 	INK_SVG_STROKE_PATH_CLASS,
 	INK_SVG_WRITING_LINE_CLASS,
 } from 'src/default-content-colours';
 import { INK_CANVAS_FORMAT_VERSION, WRITING_LINE_HEIGHT, WRITING_MIN_PAGE_HEIGHT } from 'src/constants';
 import type { InkStroke, InkCanvasSnapshot } from './types';
 import { getRenderedStrokeData } from './rendered-stroke-cache';
+import { isCustomInkStrokeColour } from './stroke-palette';
 ///////////////////////////
 ///////////////////////////
 
@@ -67,8 +69,11 @@ export function renderWritingStrokesToSvg(
 }
 
 
-function buildStrokePathMarkup(d: string, offsetX: number, offsetY: number): string {
-	const pathAttrs = `d="${d}" fill="${DEFAULT_CONTENT_COLOUR_PRIMARY_STROKE}" class="${INK_SVG_STROKE_PATH_CLASS}"`;
+function buildStrokePathMarkup(d: string, offsetX: number, offsetY: number, colour: string): string {
+	const isCustomColour = isCustomInkStrokeColour(colour);
+	const fill = isCustomColour ? colour.toLowerCase() : DEFAULT_CONTENT_COLOUR_PRIMARY_STROKE;
+	const pathClass = isCustomColour ? INK_SVG_STROKE_CUSTOM_COLOUR_PATH_CLASS : INK_SVG_STROKE_PATH_CLASS;
+	const pathAttrs = `d="${d}" fill="${fill}" class="${pathClass}"`;
 	const hasOffset = offsetX !== 0 || offsetY !== 0;
 	if (hasOffset) {
 		return `<g transform="translate(${offsetX},${offsetY})"><path ${pathAttrs} /></g>\n`;
@@ -130,7 +135,7 @@ function renderStrokePathsAndBounds(strokes: InkStroke[]): {
 		if (strokeMinY < minY) minY = strokeMinY;
 		if (strokeMaxX > maxX) maxX = strokeMaxX;
 		if (strokeMaxY > maxY) maxY = strokeMaxY;
-		pathsMarkup += buildStrokePathMarkup(rendered.pathD, stroke.offset.x, stroke.offset.y);
+		pathsMarkup += buildStrokePathMarkup(rendered.pathD, stroke.offset.x, stroke.offset.y, stroke.style.color);
 	}
 
 	return {

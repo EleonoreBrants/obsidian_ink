@@ -1,9 +1,10 @@
 
 .ink_expand-lines-button {
     // Positioned at the far right of the SecondaryMenuBar while undo/redo stays centered
+    // Sits above the style menu, which occupies the bottom-right corner
     position: absolute;
     right: 8px;
-    bottom: 8px;
+    bottom: calc(8px + 2.5em + 8px);
 
     display: flex;
     flex-direction: row;
