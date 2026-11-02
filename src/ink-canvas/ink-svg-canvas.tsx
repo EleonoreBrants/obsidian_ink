@@ -41,6 +41,7 @@ import {
 } from './selection-context-menu';
 import { FingerBlocker } from 'src/components/jsx-components/finger-blocker/finger-blocker';
 import { resolveInkTouchGestureMode } from 'src/logic/touch-gesture-policy';
+import { inkDebugLog } from 'src/logic/utils/universal-dev-logging';
 import type { StrokeInputEditorKind } from 'src/logic/device-settings/device-settings-types';
 import { setLastDetectedStrokeInput } from 'src/logic/device-settings/device-settings';
 import { useStrokeInputTreatAs } from 'src/logic/device-settings/use-stroke-input-treat-as';
@@ -761,6 +762,7 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 	const isBooxInputLockedRef = useRef(props.isBooxInputLocked ?? false);
 	isBooxInputLockedRef.current = props.isBooxInputLocked ?? false;
 	const isFingerDrawingActiveRef = useRef(props.isFingerDrawingActive ?? false);
+	const touchMoveLogCountRef = useRef(0);
 	isFingerDrawingActiveRef.current = props.isFingerDrawingActive ?? false;
 
 	// Discard any in-progress local stroke when Boox takes over input (matches tldraw lockTldrawInput).
@@ -1010,6 +1012,10 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 	}, [tool, isClientPointOnSelectionChrome, clearSelectionLongPressTimer, showSelectionContextMenuAt]);  
 
 	const handlePointerMove = useCallback((e: React.PointerEvent) => {
+		if (e.pointerType === 'touch' && e.nativeEvent.isTrusted && touchMoveLogCountRef.current++ % 15 === 0) {
+			// Trusted touch moves reaching the SVG mean the canvas holds the pointer capture.
+			inkDebugLog({ hypothesisId: 'finger-2f', location: 'ink-svg-canvas', message: 'svg:touch-pointermove-native', data: { pointerId: e.pointerId } });
+		}
 		if (e.pointerType === 'touch' && !isFingerDrawingActiveRef.current) {
 			if (isTouchSelectGestureRef.current) {
 				recordCanvasPointer(e);
@@ -1141,6 +1147,9 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 	}, [tool, releasePanMomentum, applyToolChange, clearSelectionLongPressTimer]);  
 
 	const handlePointerCancel = useCallback((e: React.PointerEvent) => {
+		if (e.pointerType === 'touch') {
+			inkDebugLog({ hypothesisId: 'finger-2f', location: 'ink-svg-canvas', message: 'svg:touch-pointercancel', data: { pointerId: e.pointerId, synthetic: !e.nativeEvent.isTrusted } });
+		}
 		if (e.pointerType === 'touch' && !isFingerDrawingActiveRef.current) {
 			if (isTouchSelectGestureRef.current) {
 				isTouchSelectGestureRef.current = false;

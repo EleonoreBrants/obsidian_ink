@@ -18,6 +18,7 @@ import {
 	clearInkCmScrollerScrollLock_debounced,
 	INK_CM_SCROLLER_SCROLL_LOCKED_CLASS,
 } from 'src/logic/utils/clear-ink-cm-scroller-scroll-lock';
+import { inkDebugLog } from 'src/logic/utils/universal-dev-logging';
 import './finger-blocker.scss';
 const INK_FINGER_BLOCKER_TOUCH_NONE_CLASS = 'ink-finger-blocker--touch-none';
 const INK_FINGER_BLOCKER_TOUCH_PAN_XY_CLASS = 'ink-finger-blocker--touch-pan-xy';
@@ -37,6 +38,11 @@ function isDrawingPointer(e: PointerEvent): boolean {
 
 function isInkSvgPenTarget(target: EventTarget | null): target is SVGSVGElement {
 	return target instanceof SVGSVGElement && target.classList.contains('ink-svg-canvas');
+}
+
+/** Filter the console on `finger-2f` to trace finger-drawing + two-finger pan/zoom. */
+function logFingerGesture(message: string, data?: Record<string, unknown>): void {
+	inkDebugLog({ hypothesisId: 'finger-2f', location: 'finger-blocker', message, data });
 }
 
 // Constants
@@ -368,6 +374,11 @@ export function FingerBlocker({
 		const cancelActiveFingerDrawingPointers = (penTarget: EventTarget | null) => {
 			if (!penTarget) return;
 			for (const pointerId of [...fingerDrawingPointerIdsRef.current]) {
+				logFingerGesture('cancelFingerDrawing:before', {
+					pointerId,
+					svgHasCapture: penTarget instanceof Element ? penTarget.hasPointerCapture(pointerId) : null,
+					blockerHasCapture: element.hasPointerCapture(pointerId),
+				});
 				const stored = activeTouchPointerDataRef.current.get(pointerId);
 				if (stored) {
 					forwardPointerEvent(
@@ -383,6 +394,21 @@ export function FingerBlocker({
 						}),
 					);
 				}
+				// The canvas captured this pointer via the forwarded pointerdown; take it back so
+				// the two-finger gesture keeps receiving this finger's moves.
+				try {
+					if (penTarget instanceof Element && penTarget.hasPointerCapture(pointerId)) {
+						penTarget.releasePointerCapture(pointerId);
+					}
+					element.setPointerCapture(pointerId);
+				} catch (err) {
+					logFingerGesture('cancelFingerDrawing:captureError', { pointerId, err: String(err) });
+				}
+				logFingerGesture('cancelFingerDrawing:after', {
+					pointerId,
+					svgHasCapture: penTarget instanceof Element ? penTarget.hasPointerCapture(pointerId) : null,
+					blockerHasCapture: element.hasPointerCapture(pointerId),
+				});
 				fingerDrawingPointerIdsRef.current.delete(pointerId);
 			}
 			if (fingerDrawingPointerIdsRef.current.size === 0) {
@@ -481,6 +507,17 @@ export function FingerBlocker({
 				});
 				const touchCount = activeTouchPointerDataRef.current.size;
 				const penTarget = getPenForwardTarget();
+				logFingerGesture('touch:pointerdown', {
+					pointerId: e.pointerId,
+					touchCount,
+					trackedIds: [...activeTouchPointerDataRef.current.keys()],
+					fingerDrawingIds: [...fingerDrawingPointerIdsRef.current],
+					fingerForwardActive: isFingerDrawingForwardActive(),
+					twoFingerModeActive: twoFingerModeActiveRef.current,
+					twoFingerVerticalPanActive: twoFingerVerticalPanActiveRef.current,
+					gestureMode: touchGestureModeRef.current,
+					isInkCanvasTwoFingerMode: isInkCanvasTwoFingerMode(),
+				});
 
 				if (isFingerDrawingForwardActive() && touchCount >= 2 && fingerDrawingPointerIdsRef.current.size > 0) {
 					cancelActiveFingerDrawingPointers(penTarget);
@@ -558,6 +595,7 @@ export function FingerBlocker({
 					blockObsidianTouchEvent(e);
 					setFingerBlockerTouchMode(element, 'none');
 					twoFingerModeActiveRef.current = true;
+					logFingerGesture('twoFinger:start', { touchCount, hasInkCallback: !!onDrawingEmbedTwoFingerGestureRef.current });
 
 					const inkTwoFinger = onDrawingEmbedTwoFingerGestureRef.current;
 					const editorForLock = getTlEditor?.();
@@ -604,7 +642,18 @@ export function FingerBlocker({
 			unlockScroll();
 		};
 
+		let touchMoveLogCount = 0;
 		const handlePointerMove = (e: PointerEvent) => {
+			if (e.pointerType === 'touch' && touchMoveLogCount++ % 15 === 0) {
+				logFingerGesture('touch:pointermove', {
+					pointerId: e.pointerId,
+					tracked: activeTouchPointerDataRef.current.has(e.pointerId),
+					drawing: fingerDrawingPointerIdsRef.current.has(e.pointerId),
+					twoFingerModeActive: twoFingerModeActiveRef.current,
+					recentPenInput: recentPenInputRef.current,
+					trackedCount: activeTouchPointerDataRef.current.size,
+				});
+			}
 			if (e.pointerType === 'pen' || e.pointerType === 'mouse') {
 				e.preventDefault();
 				e.stopPropagation();
@@ -776,7 +825,10 @@ export function FingerBlocker({
 					screenY: e.screenY,
 				});
 
-				if (activeTouchPointerDataRef.current.size < 2) return;
+				if (activeTouchPointerDataRef.current.size < 2) {
+					logFingerGesture('twoFinger:move-skipped', { trackedCount: activeTouchPointerDataRef.current.size });
+					return;
+				}
 
 				blockObsidianTouchEvent(e);
 
@@ -825,6 +877,13 @@ export function FingerBlocker({
 		};
 
 		const handlePointerUp = (e: PointerEvent) => {
+			if (e.pointerType === 'touch') {
+				logFingerGesture('touch:pointerup', {
+					pointerId: e.pointerId,
+					drawing: fingerDrawingPointerIdsRef.current.has(e.pointerId),
+					twoFingerModeActive: twoFingerModeActiveRef.current,
+				});
+			}
 			if (e.pointerType === 'pen' || e.pointerType === 'mouse') {
 				const penTarget = getPenForwardTarget();
 				if (penTarget && stylusEraserPointerIdsRef.current.has(e.pointerId)) {
@@ -924,6 +983,14 @@ export function FingerBlocker({
 		};
 
 		const handlePointerCancel = (e: PointerEvent) => {
+			if (e.pointerType === 'touch') {
+				// A native cancel here means the browser took the gesture (touch-action).
+				logFingerGesture('touch:pointercancel', {
+					pointerId: e.pointerId,
+					drawing: fingerDrawingPointerIdsRef.current.has(e.pointerId),
+					twoFingerModeActive: twoFingerModeActiveRef.current,
+				});
+			}
 			if (e.pointerType === 'touch' && fingerDrawingPointerIdsRef.current.has(e.pointerId)) {
 				const penTarget = getPenForwardTarget();
 				if (penTarget) {
@@ -1062,7 +1129,10 @@ export function FingerBlocker({
 		// here, but pointerup never arrives — so unlockScroll() would never be called and
 		// the scroll-lock mechanism (isPenDownRef + handleScroll) would stay active
 		// indefinitely, blocking all scroll attempts even after the gesture ends.
-		const handleLostPointerCapture = () => {
+		const handleLostPointerCapture = (e: PointerEvent) => {
+			if (e.pointerType === 'touch') {
+				logFingerGesture('touch:lostpointercapture', { pointerId: e.pointerId });
+			}
 			if (!isPenDownRef.current) return;
 			unlockScroll();
 		};
