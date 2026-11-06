@@ -35,7 +35,11 @@ import { useDominantHand } from 'src/stores/dominant-hand-store';
 import { showMenuOptionsAtPosition } from 'src/components/jsx-components/overflow-menu/show-menu-options';
 import {
 	buildSelectionStrokeContextMenuOptions,
+	isKeyboardEventForInkEditor,
 	isPagePointOnSelectionChrome,
+	isSelectionDeleteKeyboardEvent,
+	rememberSelectionKeyCanvas,
+	releaseSelectionKeyCanvas,
 	SELECTION_CONTEXT_MENU_LONG_PRESS_MS,
 	SELECTION_CONTEXT_MENU_LONG_PRESS_MOVE_THRESHOLD_PX,
 } from './selection-context-menu';
@@ -253,11 +257,22 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 	const selectedIdsRef = useRef(selectedIds);
 	selectedIdsRef.current = selectedIds;
 
+	// Click, drag, and selection edits own the keyboard. Hover must not call this.
+	const focusEmbedForKeyboard = useCallback(() => {
+		const container = containerRef.current;
+		if (!container) return;
+		rememberSelectionKeyCanvas(container);
+		if (container.ownerDocument.activeElement === container) return;
+		container.focus({ preventScroll: true });
+	}, []);
+
 	// Rebuild oriented chrome only when the selected id set changes (not after move/rotate bakes).
 	useEffect(() => {
 		const signature = [...selectedIds].sort().join(',');
 		if (signature === selectedIdsSignatureRef.current) return;
 		selectedIdsSignatureRef.current = signature;
+		// Making, adding, or removing a selection is an edit, so shortcuts follow it.
+		focusEmbedForKeyboard();
 		setSelectionPreview(null);
 		if (selectedIds.size === 0) {
 			setSelectionChrome(null);
@@ -269,7 +284,7 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 			getCamera: () => cameraRef.current,
 		} as SelectToolContext);
 		if (bounds) setSelectionChrome(selectionChromeFromBounds(bounds));
-	}, [selectedIds]);
+	}, [selectedIds, focusEmbedForKeyboard]);
 
 	const panMomentumRef = useRef<PanMomentumController | null>(null);
 	useEffect(() => {
@@ -678,8 +693,13 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 			setSelectionChrome(chrome);
 		},
 		setSelectionPreview: (preview) => setSelectionPreview(preview),
-		writingMode,
 		getDominantHand: () => dominantHandRef.current,
+		// Writing pages end at the page edge, so a dragged fragment is clamped back into reach (#132).
+		// Drawings are an infinite canvas, so they return null and move freely.
+		getSelectionMovePageBounds: () => {
+			if (!writingMode) return null;
+			return { width: pageWidth, height: pageHeightRef.current };
+		},
 	};
 
 	selectCtxRef.current = selectCtx;
@@ -879,6 +899,7 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 	};
 
 	const handlePointerDown = useCallback((e: React.PointerEvent) => {
+		focusEmbedForKeyboard();
 		// Touch input: two-finger gestures are handled by the native touch listener.
 		// Single-finger touch is ignored unless finger drawing is active — except long-press
 		// on the selection chrome for a stroke delete menu.
@@ -1009,7 +1030,7 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 		}
 
 		(e.target as HTMLElement).setPointerCapture(e.pointerId);
-	}, [tool, isClientPointOnSelectionChrome, clearSelectionLongPressTimer, showSelectionContextMenuAt]);  
+	}, [tool, isClientPointOnSelectionChrome, clearSelectionLongPressTimer, showSelectionContextMenuAt, focusEmbedForKeyboard]);  
 
 	const handlePointerMove = useCallback((e: React.PointerEvent) => {
 		if (e.pointerType === 'touch' && e.nativeEvent.isTrusted && touchMoveLogCountRef.current++ % 15 === 0) {
@@ -1088,6 +1109,8 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 	}, [tool]);  
 
 	const handlePointerUp = useCallback((e: React.PointerEvent) => {
+		// End of a click or drag. Re-assert focus in case the gesture moved it.
+		focusEmbedForKeyboard();
 		if (e.pointerType === 'touch' && !isFingerDrawingActiveRef.current) {
 			if (isTouchSelectGestureRef.current) {
 				isTouchSelectGestureRef.current = false;
@@ -1144,7 +1167,7 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 		) {
 			endTemporaryEraseMode('sideButton');
 		}
-	}, [tool, releasePanMomentum, applyToolChange, clearSelectionLongPressTimer]);  
+	}, [tool, releasePanMomentum, applyToolChange, clearSelectionLongPressTimer, focusEmbedForKeyboard]);  
 
 	const handlePointerCancel = useCallback((e: React.PointerEvent) => {
 		if (e.pointerType === 'touch') {
@@ -1333,6 +1356,26 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 	}, [writingMode, props.isEmbedded]);
 
 
+	// Backspace/Delete remove the selection while its bounding box is showing.
+	// Capture on the canvas window so the note editor does not also delete a character.
+	useEffect(() => {
+		const view = containerRef.current?.ownerDocument.defaultView ?? window;
+		const container = containerRef.current;
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (!isSelectionDeleteKeyboardEvent(event)) return;
+			if (toolRef.current !== 'select' || selectedIdsRef.current.size === 0) return;
+			if (!isKeyboardEventForInkEditor(containerRef.current)) return;
+			event.preventDefault();
+			event.stopPropagation();
+			deleteSelectedStrokesRef.current();
+		};
+		view.addEventListener('keydown', handleKeyDown, true);
+		return () => {
+			view.removeEventListener('keydown', handleKeyDown, true);
+			if (container) releaseSelectionKeyCanvas(container);
+		};
+	}, []);
+
 	// Space+drag pan (Phase C)
 	// Space key held + left-drag → pan. Only active when the pointer is over the canvas
 	// to avoid stealing Space from other Obsidian UI (text editors, search boxes, etc).
@@ -1479,6 +1522,7 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 			<div
 				ref={containerRef}
 				className="ink-svg-canvas-container"
+				tabIndex={-1}
 				style={{
 					width: '100%',
 					height: '100%',
@@ -1554,7 +1598,6 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 							preview={selectionPreview}
 							cameraZoom={camera.zoom}
 							dominantHand={dominantHand}
-							writingMode={writingMode}
 						/>
 					)}
 
@@ -1577,7 +1620,6 @@ export function InkSvgCanvas(props: InkSvgCanvasProps): React.JSX.Element {
 							preview={selectionPreview}
 							cameraZoom={camera.zoom}
 							dominantHand={dominantHand}
-							writingMode={writingMode}
 						/>
 					)}
 
